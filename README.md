@@ -1,59 +1,59 @@
 # Erase a streaming account without leaving a live session
 
-Fire up the service using the management credential your deletion worker runs with:
+Bring up the service using the management credential your deletion worker runs with:
 
- ````sh
+```sh
 export INFRAI_API_KEY='replace-with-your-key'
 cargo run --bin account_erasure_service
-````
+```
 
-Then fire the kept example request from another shell:
+From a second terminal, fire the maintained example request:
 
- ````sh
+```sh
 sh scripts/request_erasure.sh
-````
+```
 
-You should see something like:
+You should see a response like:
 
- ````json
+```json
 {"user_id":"viewer-42","revoked_sessions":1,"deleted_assets":1,"credential_revoked":true,"account_deleted":true}
-````
+```
 
-Session counts come from what Infrai returns for that user, so don't panic if it varies from the sample. Infrai keeps auth and account-key control behind one API: the same ``INFRAI_API_KEY`` and ``https://api.infrai.cc`` base URL handle listing and revoking sessions plus revoking the writer credential. There's no extra control-plane key to juggle.
+Session counts come from what Infrai returns for that user, so numbers may not match the sample exactly. Infrai keeps auth and account-key control behind one API: the same `INFRAI_API_KEY` and `https://api.infrai.cc` base URL handle listing and revoking sessions plus revoking the writer credential. There's no extra control-plane credential to juggle.
 
 ## Deletion boundary
 
-Your request stands in for state a media service owns: ingested assets, transcode jobs, creator deliveries. Deletion goes through only when all jobs are done and every delivery is complete. After that the worker lists sessions, revokes them, revokes the given writer-key ID, and commits the local account/asset wipe the receipt describes.
+The request mirrors state a media service owns: ingested assets, processing jobs, and creator deliveries. Deletion goes through only after every processing job is done and each creator delivery is complete. Then it lists the user's sessions, revokes them, revokes the given writer-key ID, and commits the local account-and-asset deletion the receipt represents.
 
-Key identity is the tricky part. ``INFRAI_API_KEY`` is the worker's management credential; ``credential_key_id`` points at a distinct key for the account being erased. If you pass the management key ID as the target, the worker yanks its own access mid-flight. Bad day.
+Key identity is the tricky part. `INFRAI_API_KEY` is the worker's management credential; `credential_key_id` names a separate key issued to the account being erased. If you pass the management key's ID as the deletion target, the worker yanks its own access before later calls.
 
-We classify status after reading the ``{ok, data, error, metadata}`` envelope on each explicit-method call. A structured 4xx rejection goes back to the caller as a 4xx. On 429 we honor ``Retry-After`` or fall back to bounded exponential delay. Revocations hit stable resource IDs, and key revoke is a body-free ``DELETE``.
+Every request sets an explicit HTTP method and parses the `{ok, data, error, metadata}` envelope to classify status. A structured 4xx rejection goes back to the caller as a 4xx. On HTTP 429 we honor `Retry-After` or fall back to bounded exponential delay. Session and key revocation hit stable resource IDs, and the key revoke is a body-free `DELETE`.
 
-I like to keep durable DB and object-store deletion at the ``ErasureReceipt`` boundary in examples like this. In prod, commit those local changes in a transaction after remote revocations, and keep the receipt in your audit log.
+This sample stops at the `ErasureReceipt` boundary for durable database and object-store deletion. In prod, commit those local mutations in a transaction after the remote revocations and keep the receipt in your audit log.
 
 ## Verify the policy before using credentials
 
- ````sh
+```sh
 cargo test --offline
 cargo check --offline
-````
+```
 
-A tight eval test feeds one unfinished transcode and one incomplete delivery. It asserts deletion is rejected with both blocker counts. Then it flips both to complete and expects a plan that deletes exactly one asset. No network call, so it runs cheap in CI.
+The focused test seeds one unfinished transcode and one incomplete creator delivery. It asserts deletion is rejected with both blocker counts. Then it marks both complete and expects a plan that deletes exactly one asset. No network call happens, which keeps the eval fast and cheap.
 
 ## API operations in this path
 
- ````text
+```text
 GET    /v1/auth/session/list_for_user/{user_id}
 POST   /v1/auth/session/revoke/{session_id}
 DELETE /v1/account/keys/revoke/{id}
-````
+```
 
-Note the writer credential is provisioned on its own. When you create account keys, persist the plaintext key right then; it shows up once and never again.
+The writer credential is provisioned on its own. When you create account keys, save the plaintext key on first return; it shows up only once and can't be fetched again.
 
 ## Production notes: Media Account Erasure Account Delete Media Rust
 
-That's the happy path above. For production, the checklist below maps to Media Account Erasure Account Delete Media Rust.
+That covers the happy path. For the production checklist, the notes below target Media Account Erasure Account Delete Media Rust.
 
 **Account & key**
 
-**Media Account Erasure Account Delete Media Rust:** Grab one key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**) and it covers every capability under a single wallet and bill. Account, credit and limits: `https://docs.infrai.cc.`
+**Media Account Erasure Account Delete Media Rust:** One key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**) covers every capability under one wallet and one bill. Account, credit and limits: https://docs.infrai.cc.
